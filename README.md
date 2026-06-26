@@ -17,11 +17,12 @@ The canvas extension starts a local loopback HTTP server that serves the publish
     - Registers the `blazor-canvas` canvas with Copilot
     - Exposes a `reload` action for the canvas
     - Serves the published Blazor files from a local loopback server
+    - Exposes a loopback `POST /api/chat` endpoint used by the Blazor UI
     - Returns the served URL to the canvas runtime when the canvas is opened
 
 - `/BlazorCanvasDemo`
     - Minimal .NET 10 Blazor WebAssembly app
-    - Renders a simple page that identifies it as the Copilot canvas demo UI
+    - Renders a chat UI that sends prompts to the extension and displays AI replies
 
 ## How it works
 
@@ -29,7 +30,9 @@ The canvas extension starts a local loopback HTTP server that serves the publish
    `dotnet publish BlazorCanvasDemo/BlazorCanvasDemo.csproj -c Release -o publish/blazorcanvas`
 2. The canvas extension serves the contents of `publish/blazorcanvas/wwwroot` over a local loopback HTTP server.
 3. Opening the canvas returns that URL to the Copilot runtime.
-4. The canvas panel displays the Blazor page inside the panel.
+4. The Blazor page posts user prompts to `POST /api/chat`.
+5. The extension forwards each prompt to Copilot AI with `session.sendAndWait(...)`.
+6. The AI response is returned as JSON and rendered in the canvas chat transcript.
 
 ## Run locally
 
@@ -52,4 +55,4 @@ Then reload the Copilot extension (or reopen the canvas) so the extension starts
 
 - This example uses the published Blazor output rather than `dotnet run` for a more stable local hosting flow.
 - The canvas UI is served from `127.0.0.1` loopback only, which matches the canvas runtime requirement.
-- The canvas extension can expose agent-callable actions such as `reload` to control the hosted UI.
+- The canvas extension exposes `reload` as an agent-callable action, while the Blazor UI uses `POST /api/chat` for interactive AI responses.
