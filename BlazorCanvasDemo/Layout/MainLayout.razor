@@ -1,6 +1,41 @@
 ﻿@inherits LayoutComponentBase
-<main class="main-content">
-    <article class="content">
+@implements IDisposable
+@inject DisplayLanguageService Text
+
+<div class="main-content">
+    <header class="app-header">
+        <div>
+            <p class="eyebrow">@Text.T("AppEyebrow")</p>
+            <h1>@Text.T("AppTitle")</h1>
+        </div>
+        <div class="header-actions">
+            <nav class="page-nav" aria-label="Sample pages">
+                <NavLink href="" Match="NavLinkMatch.All">@Text.T("OverviewNav")</NavLink>
+                <NavLink href="actions">@Text.T("ActionsNav")</NavLink>
+                <NavLink href="monitor">@Text.T("MonitorNav")</NavLink>
+            </nav>
+            <button type="button" class="language-toggle" @onclick="Text.Toggle">@Text.ToggleLabel</button>
+        </div>
+    </header>
+
+    <main class="content">
         @Body
-    </article>
-</main>
+    </main>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Text.Changed += OnLanguageChanged;
+    }
+
+    public void Dispose()
+    {
+        Text.Changed -= OnLanguageChanged;
+    }
+
+    private void OnLanguageChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+}

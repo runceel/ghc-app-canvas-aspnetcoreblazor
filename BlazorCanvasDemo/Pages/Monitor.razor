@@ -1,0 +1,297 @@
+@page "/monitor"
+@implements IAsyncDisposable
+@inject SampleApiClient SampleApi
+@inject DisplayLanguageService Text
+@inject IJSRuntime JS
+
+<PageTitle>@Text.T("MonitorNav")</PageTitle>
+
+<section class="page-hero">
+    <div>
+        <p class="eyebrow">@Text.T("MonitorNav")</p>
+        <h2>@Text.T("MonitorTitle")</h2>
+        <p>@Text.T("MonitorIntro")</p>
+    </div>
+    <div class="status-pill @SseStatusClass">
+        <span></span>
+        @Text.T("SseLabel"): @Text.T($"Sse_{_sseStatus}")
+    </div>
+</section>
+
+@if (_isLoading)
+{
+    <section class="card">@Text.T("LoadingState")</section>
+}
+else if (!string.IsNullOrWhiteSpace(_loadError))
+{
+    <section class="card error-card">@_loadError</section>
+}
+else if (_state is not null)
+{
+    @if (!string.IsNullOrWhiteSpace(_operationError))
+    {
+        <section class="card error-card">@_operationError</section>
+    }
+
+    <div class="monitor-layout">
+        <section class="card">
+            <h3>@Text.T("WhatMonitorProves")</h3>
+            <div class="feature-list compact">
+                <article>
+                    <strong>@Text.T("SseDelivery")</strong>
+                    <p>@Text.T("SseDeliveryDescription")</p>
+                </article>
+                <article>
+                    <strong>@Text.T("AgentActionRouting")</strong>
+                    <p>@Text.T("AgentActionRoutingDescription")</p>
+                </article>
+                <article>
+                    <strong>@Text.T("SharedPersistedState")</strong>
+                    <p>@Text.T("SharedPersistedStateDescription")</p>
+                </article>
+            </div>
+        </section>
+
+        <section class="card">
+            <div class="section-title">
+                <span>1</span>
+                <h3>@Text.T("AgentActionToBlazor")</h3>
+            </div>
+            <p class="muted">@Text.T("AgentActionToBlazorDescription")</p>
+            <output>@Text.DisplayStoredText(_state.MessageFromAgent)</output>
+        </section>
+
+        <section class="card">
+            <h3>@Text.T("CurrentState")</h3>
+            <div class="status-grid">
+                <div>
+                    <strong>@Text.T("LastBlazorMessage")</strong>
+                    <p>@Text.DisplayStoredText(_state.MessageFromBlazor)</p>
+                </div>
+                <div>
+                    <strong>@Text.T("LastCopilotStatus")</strong>
+                    <p>@Text.DisplayStoredText(_state.LastCopilotReply)</p>
+                </div>
+                <div>
+                    <strong>@Text.T("LastSsePayload")</strong>
+                    <p>@LastSseMessage</p>
+                </div>
+                <div>
+                    <strong>@Text.T("Updated")</strong>
+                    <p>@_state.UpdatedAt</p>
+                </div>
+            </div>
+            <p class="store-path"><strong>@Text.T("StorePath")</strong> <code>@_state.StorePath</code></p>
+        </section>
+
+        <section class="card event-log-card">
+            <div class="section-title">
+                <span>2</span>
+                <h3>@Text.T("EventLog")</h3>
+            </div>
+
+            <div class="event-log">
+                @foreach (var item in _state.Events)
+                {
+                    <article class="@item.Level">
+                        <strong>@Text.DisplayEventKind(item.Kind)</strong>
+                        <span>@Text.DisplayStoredText(item.Message)</span>
+                        <small>@item.UpdatedAt</small>
+                    </article>
+                }
+            </div>
+
+            <button type="button" class="secondary-button" @onclick="ResetAsync" disabled="@_isResetting">
+                @(_isResetting ? Text.T("Resetting") : Text.T("ResetSampleState"))
+            </button>
+        </section>
+    </div>
+}
+
+@code {
+    private SampleStateDto? _state;
+    private DotNetObjectReference<Monitor>? _dotNetRef;
+    private int? _sseSubscriptionId;
+    private bool _isLoading = true;
+    private bool _isResetting;
+    private string? _loadError;
+    private string? _operationError;
+    private string _sseStatus = "connecting";
+    private string? _lastSseKind;
+    private string? _lastSseRawMessage;
+
+    private string SseStatusClass => _sseStatus switch
+    {
+        "connected" => "connected",
+        "reconnecting" => "warning",
+        _ => string.Empty,
+    };
+
+    private string LastSseMessage => string.IsNullOrWhiteSpace(_lastSseKind)
+        ? Text.T("NoSseMessage")
+        : string.IsNullOrWhiteSpace(_lastSseRawMessage)
+            ? Text.DisplayEventKind(_lastSseKind)
+            : $"{Text.DisplayEventKind(_lastSseKind)}: {Text.DisplayStoredText(_lastSseRawMessage)}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Text.Changed += OnLanguageChanged;
+        await LoadStateAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _dotNetRef = DotNetObjectReference.Create(this);
+        try
+        {
+            _sseSubscriptionId = await JS.InvokeAsync<int>("sampleEvents.start", "/api/events", _dotNetRef);
+        }
+        catch (Exception ex)
+        {
+            _sseStatus = "unavailable";
+            _operationError = $"SSE start failed: {ex.Message}";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_sseSubscriptionId.HasValue)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("sampleEvents.stop", _sseSubscriptionId.Value);
+            }
+            catch (JSException)
+            {
+                // JS interop can be unavailable while the iframe is closing.
+            }
+        }
+
+        _dotNetRef?.Dispose();
+        Text.Changed -= OnLanguageChanged;
+    }
+
+    private void OnLanguageChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadStateAsync()
+    {
+        _isLoading = true;
+        _loadError = null;
+        try
+        {
+            var result = await SampleApi.GetStateAsync();
+            if (!string.IsNullOrWhiteSpace(result.Error) || result.Payload is null)
+            {
+                _loadError = result.Error ?? "Sample state response was empty.";
+                return;
+            }
+
+            _state = result.Payload;
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Could not load sample state: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ResetAsync()
+    {
+        if (_isResetting)
+        {
+            return;
+        }
+
+        _isResetting = true;
+        _operationError = null;
+        try
+        {
+            var result = await SampleApi.ResetAsync();
+            if (!string.IsNullOrWhiteSpace(result.Error) || result.Payload is null)
+            {
+                _operationError = result.Error ?? "Reset failed.";
+                return;
+            }
+
+            _state = result.Payload;
+        }
+        catch (Exception ex)
+        {
+            _operationError = $"Reset failed: {ex.Message}";
+        }
+        finally
+        {
+            _isResetting = false;
+        }
+    }
+
+    [JSInvokable]
+    public Task OnSseOpen()
+    {
+        return InvokeAsync(() =>
+        {
+            _sseStatus = "connected";
+            StateHasChanged();
+        });
+    }
+
+    [JSInvokable]
+    public Task OnSseError()
+    {
+        return InvokeAsync(() =>
+        {
+            _sseStatus = "reconnecting";
+            StateHasChanged();
+        });
+    }
+
+    [JSInvokable]
+    public Task OnSseMessage(string payload)
+    {
+        return InvokeAsync(() =>
+        {
+            if (string.IsNullOrWhiteSpace(payload))
+            {
+                return;
+            }
+
+            SampleEventDto? evt;
+            try
+            {
+                evt = JsonSerializer.Deserialize<SampleEventDto>(payload, SampleApiClient.JsonOptions);
+            }
+            catch (JsonException)
+            {
+                _operationError = "SSE payload was not valid sample JSON.";
+                return;
+            }
+
+            if (evt is null)
+            {
+                return;
+            }
+
+            _lastSseKind = evt.Kind;
+            _lastSseRawMessage = evt.Message;
+
+            if (evt.State is not null)
+            {
+                _state = evt.State;
+            }
+
+            StateHasChanged();
+        });
+    }
+}

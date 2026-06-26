@@ -1,0 +1,211 @@
+@page "/actions"
+@implements IDisposable
+@inject SampleApiClient SampleApi
+@inject DisplayLanguageService Text
+
+<PageTitle>@Text.T("ActionsNav")</PageTitle>
+
+<section class="page-hero">
+    <p class="eyebrow">@Text.T("ActionsNav")</p>
+    <h2>@Text.T("ActionsTitle")</h2>
+    <p>@Text.T("ActionsIntro")</p>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(_loadError))
+{
+    <section class="card error-card">@_loadError</section>
+}
+
+@if (!string.IsNullOrWhiteSpace(_operationError))
+{
+    <section class="card error-card">@_operationError</section>
+}
+
+<div class="page-grid">
+    <section class="card">
+        <div class="section-title">
+            <span>1</span>
+            <h3>@Text.T("ActionsBlazorToCopilot")</h3>
+        </div>
+        <p class="muted">@Text.T("ActionsBlazorToCopilotDescription")</p>
+        <dl class="explain-list">
+            <dt>@Text.T("Trigger")</dt>
+            <dd>@Text.T("TriggerCopilot")</dd>
+            <dt>@Text.T("Flow")</dt>
+            <dd>@Text.T("FlowCopilot")</dd>
+            <dt>@Text.T("Result")</dt>
+            <dd>@Text.T("ResultCopilot")</dd>
+        </dl>
+        <label>
+            @Text.T("MessageFromBlazor")
+            <textarea rows="5" @bind="_messageToCopilot"></textarea>
+        </label>
+        <button type="button" class="primary-button" @onclick="SendToCopilotAsync" disabled="@_isSendingToCopilot">
+            @(_isSendingToCopilot ? Text.T("Sending") : Text.T("SendToCopilot"))
+        </button>
+    </section>
+
+    <section class="card">
+        <div class="section-title">
+            <span>2</span>
+            <h3>@Text.T("ActionsBlazorToExtension")</h3>
+        </div>
+        <p class="muted">@Text.T("ActionsBlazorToExtensionDescription")</p>
+        <dl class="explain-list">
+            <dt>@Text.T("Trigger")</dt>
+            <dd>@Text.T("TriggerPing")</dd>
+            <dt>@Text.T("Flow")</dt>
+            <dd>@Text.T("FlowPing")</dd>
+            <dt>@Text.T("Result")</dt>
+            <dd>@Text.T("ResultPing")</dd>
+        </dl>
+        <label>
+            @Text.T("EventMessage")
+            <input @bind="_pingMessage" />
+        </label>
+        <button type="button" class="secondary-button" @onclick="TriggerPingAsync" disabled="@_isPinging">
+            @(_isPinging ? Text.T("Sending") : Text.T("TriggerBlazorPing"))
+        </button>
+    </section>
+</div>
+
+<section class="card">
+    <h3>@Text.T("LatestResult")</h3>
+    @if (_state is null)
+    {
+        <p class="muted">@Text.T("NoStateLoaded")</p>
+    }
+    else
+    {
+        <div class="status-grid">
+            <div>
+                <strong>@Text.T("LastBlazorMessage")</strong>
+                <p>@Text.DisplayStoredText(_state.MessageFromBlazor)</p>
+            </div>
+            <div>
+                <strong>@Text.T("LastCopilotStatus")</strong>
+                <p>@Text.DisplayStoredText(_state.LastCopilotReply)</p>
+            </div>
+            <div>
+                <strong>@Text.T("LatestEvent")</strong>
+                <p>@LatestEventText</p>
+            </div>
+            <div>
+                <strong>@Text.T("Updated")</strong>
+                <p>@_state.UpdatedAt</p>
+            </div>
+        </div>
+    }
+</section>
+
+@code {
+    private SampleStateDto? _state;
+    private bool _isSendingToCopilot;
+    private bool _isPinging;
+    private string? _loadError;
+    private string? _operationError;
+    private string _messageToCopilot = string.Empty;
+    private string _pingMessage = string.Empty;
+
+    private string LatestEventText => _state?.Events.FirstOrDefault() is { } latest
+        ? $"{Text.DisplayEventKind(latest.Kind)}: {Text.DisplayStoredText(latest.Message)}"
+        : Text.T("NoEvents");
+
+    protected override async Task OnInitializedAsync()
+    {
+        Text.Changed += OnLanguageChanged;
+        _messageToCopilot = Text.T("DefaultCopilotMessage");
+        _pingMessage = Text.T("DefaultPingMessage");
+        await LoadStateAsync();
+    }
+
+    public void Dispose()
+    {
+        Text.Changed -= OnLanguageChanged;
+    }
+
+    private void OnLanguageChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadStateAsync()
+    {
+        _loadError = null;
+        try
+        {
+            var result = await SampleApi.GetStateAsync();
+            if (!string.IsNullOrWhiteSpace(result.Error) || result.Payload is null)
+            {
+                _loadError = result.Error ?? "Sample state response was empty.";
+                return;
+            }
+
+            _state = result.Payload;
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Could not load sample state: {ex.Message}";
+        }
+    }
+
+    private async Task SendToCopilotAsync()
+    {
+        if (_isSendingToCopilot)
+        {
+            return;
+        }
+
+        _isSendingToCopilot = true;
+        _operationError = null;
+        try
+        {
+            var result = await SampleApi.SendToCopilotAsync(_messageToCopilot);
+            if (!string.IsNullOrWhiteSpace(result.Error) || result.Payload is null)
+            {
+                _operationError = result.Error ?? "Copilot send failed.";
+                return;
+            }
+
+            _state = result.Payload;
+        }
+        catch (Exception ex)
+        {
+            _operationError = $"Copilot send failed: {ex.Message}";
+        }
+        finally
+        {
+            _isSendingToCopilot = false;
+        }
+    }
+
+    private async Task TriggerPingAsync()
+    {
+        if (_isPinging)
+        {
+            return;
+        }
+
+        _isPinging = true;
+        _operationError = null;
+        try
+        {
+            var result = await SampleApi.TriggerBlazorPingAsync(_pingMessage);
+            if (!string.IsNullOrWhiteSpace(result.Error) || result.Payload is null)
+            {
+                _operationError = result.Error ?? "Blazor ping failed.";
+                return;
+            }
+
+            _state = result.Payload;
+        }
+        catch (Exception ex)
+        {
+            _operationError = $"Blazor ping failed: {ex.Message}";
+        }
+        finally
+        {
+            _isPinging = false;
+        }
+    }
+}

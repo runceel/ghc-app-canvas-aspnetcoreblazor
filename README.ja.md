@@ -1,58 +1,57 @@
-# Blazor Canvas Demo
+# Minimal Blazor Canvas Demo
 
-このプロジェクトは、.NET 10 の Blazor WebAssembly UI を GitHub Copilot の canvas extension の中で表示する方法を示すサンプルです。
+このリポジトリは、**.NET 10 Blazor WebAssembly アプリを GitHub Copilot canvas extension 内で表示する**最小サンプルです。
 
-## 概要
+Copilot、extension プロセス、Blazor の連携パターンを確認するサンプルです。
 
-このソリューションは、次の 2 つを組み合わせて構成されています。
+## 確認できること
 
-1. `/.github/extensions/blazor-canvas/extension.mjs` に実装した Copilot canvas extension
-2. `/BlazorCanvasDemo` 配下の最小構成の Blazor WebAssembly アプリ
+1. **Agent action から Blazor**: `set-message` canvas action を実行すると、Blazor UI が SSE 経由で更新されます。
+2. **Blazor から Copilot**: Blazor の **Send to Copilot** ボタンで extension が `session.send` を呼び、UI はキューされたメッセージ状態をすぐに表示します。
+3. **Agent action からイベントログ**: `append-event` を実行すると、Blazor が SSE で新しいイベントを受け取ります。
+4. **Blazor から extension API**: **Trigger Blazor ping** ボタンで Blazor が extension HTTP API を呼び、状態更新と SSE 通知を確認できます。
+5. **open / reload**: `blazor-canvas` を開く、または `reload` action を実行して loopback サーバーの再起動を確認できます。
 
-canvas extension は、公開済みの Blazor 出力をローカルの loopback HTTP サーバーで配信し、その URL を canvas runtime に返します。canvas パネルはその URL を読み込み、Blazor アプリを UI として表示します。
+## 機能説明ページ
 
-## 現在の構成
+- **Overview** は、連携パターンと試せる canvas action を説明します。
+- **Actions** は、Blazor から開始する操作ごとに、トリガー、extension/API の流れ、期待される結果を説明します。
+- **Monitor** は、SSE、agent action、永続化された状態変更を見るポイントを説明します。
 
-- `/.github/extensions/blazor-canvas/extension.mjs`
-  - Copilot に `blazor-canvas` という canvas を登録する
-  - canvas 用の `reload` アクションを公開する
-  - ローカルの loopback サーバーで公開済み Blazor ファイルを配信する
-  - Blazor UI から利用する loopback `POST /api/chat` エンドポイントを公開する
-  - canvas を開いたときに配信中の URL を canvas runtime に返す
+ヘッダーの言語切替で、日本語 / 英語を切り替えられます。
 
-- `/BlazorCanvasDemo`
-  - 最小構成の .NET 10 Blazor WebAssembly アプリ
-  - プロンプト送信と AI 応答表示ができるチャット UI を表示する
+## 構成
 
-## 動作の流れ
+- `.github/extensions/blazor-canvas/extension.mjs`
+  - `blazor-canvas` canvas を登録します。
+  - 公開済み Blazor アプリを `127.0.0.1` で配信します。
+  - 次のサンプル API を提供します。
+    - `GET /api/sample/state`
+    - `POST /api/sample/ask-copilot`
+    - `POST /api/sample/blazor-ping`
+    - `POST /api/sample/reset`
+    - `GET /api/events`
+  - 状態を `~/.copilot/extensions/blazor-canvas/artifacts/canvas-state.json` に保存します。
+  - canvas action として `reload`, `set-message`, `append-event` を提供します。
 
-1. Blazor アプリを公開します。
-   `dotnet publish BlazorCanvasDemo/BlazorCanvasDemo.csproj -c Release -o publish/blazorcanvas`
-2. canvas extension が `publish/blazorcanvas/wwwroot` 配下のファイルをローカル loopback HTTP サーバーで配信する
-3. canvas を開くと、その URL を Copilot runtime に返す
-4. Blazor ページが `POST /api/chat` にユーザープロンプトを送信する
-5. extension が `session.sendAndWait(...)` で Copilot AI に問い合わせる
-6. AI 応答を JSON で返し、canvas 上のチャット履歴に表示する
+- `BlazorCanvasDemo/Pages/Home.razor`
+  - 概要ページです。機能確認用ページへのリンクを表示します。
 
-## ローカルで実行する方法
+- `BlazorCanvasDemo/Pages/Actions.razor`
+  - Blazor から Copilot または extension API へデータを送信します。
 
-リポジトリのルートで次のコマンドを実行します。
+- `BlazorCanvasDemo/Pages/Monitor.razor`
+  - 現在の状態、保存先、SSE 状態、Copilot 送信状態、イベントログを表示します。
+
+- `BlazorCanvasDemo/wwwroot/js/sampleEvents.js`
+  - `/api/events` を Blazor の JS interop コールバックへ接続します。
+
+## ビルド
+
+リポジトリルートで実行します。
 
 ```bash
 dotnet publish BlazorCanvasDemo/BlazorCanvasDemo.csproj -c Release -o publish/blazorcanvas
 ```
 
-その後、Copilot extension を再読み込みするか、canvas を再オープンして、公開済みファイルを配信するようにします。
-
-## 主要ファイル
-
-- `.github/extensions/blazor-canvas/extension.mjs`
-- `BlazorCanvasDemo/Program.cs`
-- `BlazorCanvasDemo/Pages/Home.razor`
-- `BlazorCanvasDemo/BlazorCanvasDemo.csproj`
-
-## 補足
-
-- このサンプルでは、`dotnet run` ではなく公開済みの Blazor 出力を使う構成にしています。これにより、ローカルでの配信がより安定しやすくなります。
-- canvas UI は `127.0.0.1` の loopback アドレスのみで配信されます。これは canvas runtime の要件に合わせた構成です。
-- canvas extension では、エージェントからは `reload` アクションを利用でき、Blazor UI からは `POST /api/chat` で AI 応答を取得できます。
+その後、Copilot extension を再読み込みするか canvas を開き直してください。
